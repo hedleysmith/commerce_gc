@@ -1,0 +1,108 @@
+<?php
+
+/**
+ * @file
+ * Implements Google Checkout payment method in Commerce module
+ */
+
+
+/**
+ * Implements hook_commerce_payment_method_info().
+ */
+function commerce_gc_commerce_payment_method_info() {
+  $payment_methods = array();
+
+  $payment_methods['commerce_gc'] = array(
+    'title' => t('Google Checkout'),
+    'short_title' => t('Google Checkout'),
+    'description' => t('Google Checkout payment method'),
+    'terminal' => FALSE,
+    'offsite' => TRUE,
+    'active' => TRUE,
+    'offsite_autoredirect' => TRUE,
+  );
+
+  return $payment_methods;
+}
+
+/**
+ * Payment method callback: redirect form.
+ */
+function commerce_gc_redirect_form($form, &$form_state, $order, $payment_method) {
+
+  $settings = array(
+    // Return to the previous page when payment is canceled
+    'cancel_return' => url('checkout/' . $order->order_id . '/payment/back/' . $order->data['payment_redirect_key'], array('absolute' => TRUE)),
+
+    // Return to the payment redirect page for processing successful payments
+    'return' => url('checkout/' . $order->order_id . '/payment/return/' . $order->data['payment_redirect_key'], array('absolute' => TRUE)),
+
+    // Specify the current payment method instance ID in the notify_url
+    'payment_method' => $payment_method['instance_id'],
+  );
+  
+  return commerce_gc_order_form($form, $form_state, $order, $payment_method['settings'] + $settings);
+  
+}
+
+/**
+ * Builds a Google Checkout form from an order object.
+ *
+ * @param $order
+ *   The fully loaded order being paid for.
+ * @param $settings
+ *   An array of settings used to build out the form, including:
+ *   - Name
+ *   - Description
+ *   - Quantity
+ *   - Price
+ *   - Currency
+ *
+ * @return
+ *   A renderable form array.
+ */
+function commerce_gc_order_form($form, &$form_state, $order, $settings) {
+  
+  $wrapper = entity_metadata_wrapper('commerce_order', $order);
+
+  $currency_code = $wrapper->commerce_order_total->currency_code->value();
+  $amount = $wrapper->commerce_order_total->amount->value();
+
+  // Ensure a default value for the payment_method setting.
+  $settings += array('payment_method' => '');
+  
+  // Build the data array that will be translated into hidden form values.
+  $data = array(
+    // Description
+    'item_description_1' => 'Richard Hardys Original Male Supplements',
+
+    // Quantity
+    'item_quantity_1' => '1',
+
+    // Set the currency and language codes
+    //'currency_code' => in_array($currency_code, array_keys(commerce_paypal_wps_currencies())) ? $currency_code : $settings['currency_code'],
+    'item_currency_1' => 'GBP',
+  
+    // Price
+    'item_price_1' => commerce_currency_amount_to_decimal($amount, $currency_code),
+  
+    // Define a single item in the cart representing the whole order
+    'item_name_1' => t('Order @order_number at @store', array('@order_number' => $order->order_number, '@store' => variable_get('site_name', url('<front>', array('absolute' => TRUE))))),
+
+  );
+
+  $form['#action'] = 'https://sandbox.google.com/checkout/api/checkout/v2/checkoutForm/Merchant/931252801209533';
+
+  foreach ($data as $name => $value) {
+    if (!empty($value)) {
+      $form[$name] = array('#type' => 'hidden', '#value' => $value);
+    }
+  }
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Proceed to Google Checkout'),
+  );
+
+  return $form;
+}
